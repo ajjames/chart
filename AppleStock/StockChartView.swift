@@ -26,8 +26,8 @@ class StockChartView: NSView
     private let kChartPaddingY:CGFloat = 10.0
     private let kPlotPaddingX:CGFloat = 60.0
     private let kPlotPaddingY:CGFloat = 40.0
-    private let xAxisLabelPosition:CGFloat = 15.0
-    private let yAxisLabelPosition:CGFloat = 30.0
+    private let xAxisLabelPosition:CGFloat = 18.0
+    private let yAxisLabelPosition:CGFloat = 26.0
     private let kAnimationDuration:CFTimeInterval = 1.0
     //ivars
     private var sortedDates:[NSDate]!
@@ -38,6 +38,8 @@ class StockChartView: NSView
     private var plotAreaRect:CGRect!
     private var dataPoints:[CGPoint]!
     private var plottableHeight:CGFloat!
+    private var chartLayer:CAShapeLayer!
+    private var labels = [CATextLayer]()
 
     override func viewDidMoveToSuperview()
     {
@@ -55,6 +57,24 @@ class StockChartView: NSView
         }
     }
 
+    override func viewDidEndLiveResize()
+    {
+        needsDisplay = true
+    }
+
+    override func viewWillStartLiveResize()
+    {
+        if chartLayer != nil
+        {
+            chartLayer.removeFromSuperlayer()
+            for label in labels
+            {
+                label.removeFromSuperlayer()
+            }
+            labels = [CATextLayer]()
+        }
+    }
+
     override func drawRect(dirtyRect: NSRect)
     {
         super.drawRect(dirtyRect)
@@ -64,7 +84,10 @@ class StockChartView: NSView
         plotAreaRect = CGRectZero
         dataPoints = [CGPoint]()
         drawChartWithGrid()
-        animateData()
+        if !inLiveResize
+        {
+            animateData()
+        }
     }
 
     private func drawChartWithGrid()
@@ -146,7 +169,6 @@ class StockChartView: NSView
                 //convert value to a point on the y axis
                 let valueDelta = CGFloat(price) - minValueY
                 let plotY = ((valueDelta * (plottableHeight * 0.75)) / yRange) + (plottableHeight / 4.0)
-                println("POINT: (\(startingX),\(plotY))")
                 dataPoints.append(CGPoint(x: startingX, y: plotY))
                 gridLabelXs.append(startingX)
                 startingX += xSpacing
@@ -156,9 +178,13 @@ class StockChartView: NSView
 
     private func drawPoints()
     {
-        var shapeLayer = CAShapeLayer()
-        shapeLayer.frame = plotAreaRect
-        shapeLayer.strokeColor = kLineColor.CGColor
+        if chartLayer != nil
+        {
+            chartLayer.removeFromSuperlayer()
+        }
+        chartLayer = CAShapeLayer()
+        chartLayer.frame = plotAreaRect
+        chartLayer.strokeColor = kLineColor.CGColor
         let zeroPath = NSBezierPath()
         zeroPath.moveToPoint(dataPoints.first!)
         var path = NSBezierPath()
@@ -188,21 +214,23 @@ class StockChartView: NSView
             }
             previousPoint = currentPoint
         }
-        shapeLayer.lineCap = kCALineCapRound
-        shapeLayer.fillColor = NSColor.clearColor().CGColor
-        shapeLayer.path = path.CGPath
-        shapeLayer.strokeEnd = lineLength / fullStrokeLength
+        chartLayer.lineCap = kCALineCapRound
+        chartLayer.fillColor = NSColor.clearColor().CGColor
+        chartLayer.path = path.CGPath
+        chartLayer.strokeEnd = lineLength / fullStrokeLength
 
         var animation = CABasicAnimation(keyPath: "strokeEnd")
         animation.duration = kAnimationDuration
         animation.fromValue = 0.0
-        animation.toValue = shapeLayer.strokeEnd
-        shapeLayer.addAnimation(animation, forKey: nil)
-        self.layer?.addSublayer(shapeLayer)
+        animation.toValue = chartLayer.strokeEnd
+        chartLayer.addAnimation(animation, forKey: nil)
+        self.layer?.addSublayer(chartLayer)
     }
 
     private func drawLabels()
     {
+        var yLabelLayer = CATextLayer()
+
         let minX = NSMinX(plotAreaRect)
         for index in 0..<sortedDates.count
         {
@@ -210,25 +238,37 @@ class StockChartView: NSView
             let x = gridLabelXs[index] + minX
             let y = xAxisLabelPosition
             var formatter = NSDateFormatter()
-            println("DATE:\(date)")
             formatter.dateFormat = "M/d"
-            drawLabel(formatter.stringFromDate(date), point: CGPoint(x:x,y:y))
+            drawLabel(formatter.stringFromDate(date), point: CGPoint(x:x,y:y), isXAxis:false)
         }
+
         for index in 0..<priceLabels.count
         {
             let x = yAxisLabelPosition
             let y = gridLabelYs[index] - 6.0
             var label = NSString(format: "$%.0f", priceLabels[index])
-            drawLabel(label, point: CGPoint(x:x,y:y))
+            drawLabel(label, point: CGPoint(x:x,y:y), isXAxis:true)
         }
     }
 
-    private func drawLabel(text:String, point:CGPoint)
+    private func drawLabel(text:String, point:CGPoint, isXAxis:Bool)
     {
-        var p = point
-        let label: NSString = text
-        p.x = p.x - 6.0
-        label.drawAtPoint(p, withAttributes:[NSForegroundColorAttributeName:NSColor.whiteColor()])
+        var textLayer = CATextLayer(layer: layer)
+        textLayer.string = text
+        textLayer.anchorPoint = isXAxis ? CGPoint(x: 0.5, y: 0.5) : CGPoint(x: 1.0, y: 1.0)
+        textLayer.frame.origin = point
+        textLayer.fontSize = 12.0
+        textLayer.frame.size = CGSize(width: 30.0, height: 15.0)
+        textLayer.alignmentMode = kCAAlignmentCenter
+
+        var animation = CABasicAnimation(keyPath: (isXAxis) ? "position.x" : "position.y")
+        animation.duration = kAnimationDuration
+        animation.fromValue = -20.0
+        animation.toValue = isXAxis ? point.x : point.y
+        textLayer.addAnimation(animation, forKey: nil)
+        self.layer?.addSublayer(textLayer)
+
+        labels.append(textLayer)
     }
     
 }
